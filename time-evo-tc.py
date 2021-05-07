@@ -6,16 +6,27 @@ import matplotlib.pyplot as plt
 from scipy.special import eval_genlaguerre
 import csv
 import lmfit
-
+import scipy.optimize as op
 import sys
+import pickle
+
 # the mock-0.3.1 dir contains testcase.py, testutils.py & mock.py
 sys.path.append("/Users/Ben/Library/Mobile Documents/com~apple~CloudDocs/Documents/GitHub/sqip_data_analysis/rabi_to_heating_rate_python3/heating_rate_analysis")
 from sqip_rate_from_flops import *
 from sqip_rabi_flop_fitter import *
 
+
+def load_files(path, filename):
+    with open(path + filename, 'rb') as data_file:
+        return pickle.load(data_file)
+    # for key in keys:
+    #     with open(path + filename + key + ".csv", mode='w') as data_file:
+    #         csv_reader = csv.read(data_file,delimiter = ",")
+    #         for row in csv_reader:
 # @numba.jit(nopython=True)
+
 class rabiObj():
-    def __init__(self,rho0,coupling,tlist,tlist_rabi,N=100):
+    def __init__(self,rho0,coupling,tlist,tlist_rabi,N=100,color='black',label = ''):
         self.rho0 = rho0
         self.rhoTE = rho0
         self.rhof = rho0
@@ -34,6 +45,8 @@ class rabiObj():
         self.nbarerrs = []
         self.trap_freq= 1e6
         self.theta = 0
+        self.color = color
+        self.label = label
 
     def time_evo(self):
         kappa = self.cp # coupling to oscillator
@@ -53,7 +66,7 @@ class rabiObj():
         if self.rabi_fit == True:
             self.rhoTE = qutip.mesolve(self.H, self.rho0, self.tlist, c_op_list,progress_bar=TextProgressBar(N))
             self.sample_waits(self.nbpts)
-            self.save_files("/Users/Ben/Desktop","test")
+            self.save_files("/Users/Ben/Library/Mobile Documents/com~apple~CloudDocs/Documents/GitHub/ionLifetimes/time-evo-ion/N400SimObj/",self.label)
         else:
             return qutip.mesolve(self.H, self.rho0, self.tlist, c_op_list, self.a.dag() * self.a, progress_bar=TextProgressBar(N))
 
@@ -83,12 +96,16 @@ class rabiObj():
             # plt.plot(self.tlist_rabi,flop,label=idx*factor,color=color)
 
     def save_files(self,path,filename,add_on = ""):
-        for waittime in self.rabi_flop_dict.keys():
-            with open(path+"/"+filename+str(waittime)+add_on+".csv", mode='w') as data_file:
-                data_writer = csv.writer(data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                for i in range(len(self.tlist_rabi)):
-                    data_writer.writerow([self.tlist_rabi[i],self.rabi_flop_dict[waittime]])
-
+        config_dictionary = {'remote_hostname': 'google.com', 'remote_port': 80}
+        # with open('config.dictionary', 'wb') as config_dictionary_file:
+        with open(path + filename + add_on, mode='wb') as data_file:
+            # Step 3
+            pickle.dump(self, data_file)
+        # for waittime in self.rabi_flop_dict.keys():
+        #     with open(path+filename+str(waittime)+add_on+".csv", mode='w') as data_file:
+        #         data_writer = csv.writer(data_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        #         for i in range(len(self.tlist_rabi)):
+        #             data_writer.writerow([self.tlist_rabi[i],self.rabi_flop_dict[waittime]])
     def generate_heating_rates(self):
         nbarlist = []
         nbarerrs = []
@@ -176,7 +193,7 @@ class rabiObj():
             excitation_scaling_errs = np.append(excitation_scaling_errs, params['excitation_scaling'].stderr)
             # print 'optical pumping estimate from fit:' + str(params['excitation_scaling'].value)
             print('ok')
-            mycolor = cycol()
+            mycolor = self.color
             # pyplot.plot(list(np.arange(np.alen(out))), out)
             ax.plot(t, p, 'r', label='data' + str(key), color=mycolor, marker='*')
             ax.plot(t, fit_values, 'r', label='fitted ' + str(key), color=mycolor)
@@ -191,13 +208,16 @@ class rabiObj():
         return (times, nbarlist, nbarerrs, excitation_scaling_list, excitation_scaling_errs)
 
 # master eq.
-N = 300
+N = 400
+plt.rcParams['figure.figsize'] = [10, 8]
 
 tlist = np.linspace(0, 50, 100)
-tlist_rabi = np.linspace(0, 50, 20)
+tlist_rabi = np.linspace(0, 50, 10)
 
 pts = 2
-displacements = [0]
+displacements = [0,0.13,0.45,2,5]
+startingnb= [20,20,20,20,20]
+
 
 def thermal(N,nb):
     x = np.zeros(N)
@@ -207,11 +227,12 @@ def thermal(N,nb):
         y[i] = 1/(1+nb)*(nb/(1+nb))**i
     return x,y
 
-colors = ['orange','red','purple','blue']
+colors = ['black','red','purple','blue','green',"orange"]
+style = ['solid','dashed','solid','solid','solid',"solid"]
 for j in range(len(displacements)):
     d = displace(N, displacements[j])
     print("evaluating initial state...")
-    psi0 = (d * qutip.thermal_dm(N, 35)) * d.dag()
+    psi0 = (d * qutip.thermal_dm(N, startingnb[j])) * d.dag()
     # initial state
     # fig, axes = plt.subplots(1, 1, figsize=(12, 3))
     # plot_fock_distribution(psi0, fig=fig, ax=axes, title="Thermal state")
@@ -221,29 +242,49 @@ for j in range(len(displacements)):
     # fig.tight_layout()
     # plt.show()
 
-    rabiob = rabiObj(psi0,10*10**-8,tlist,tlist_rabi,N)
+    rabiob = rabiObj(psi0,10*10**-8,tlist,tlist_rabi,N,color = colors[j],label = "alpha_"+ str(displacements[j]))
     init_evo = rabiob.compute_rabi_flop(0)
     print("calculating time evolution...")
     rabiob.rabi_fit = True
     medata = rabiob.time_evo()
     rabiob.generate_heating_rates()
+    # testobj = load_files("/Users/Ben/Desktop/","0")
     # final state rabi flops
     print("sampling time-evolved state")
-    plt.errorbar(rabiob.rabi_flop_dict.keys(),rabiob.nbarlist,rabiob.nbarerrs)
+
+
+    def f(x, rate, offset):
+        return rate * x + offset
+
+
+    vals = list(rabiob.rabi_flop_dict.keys())
+    popt, pcov = op.curve_fit(f, vals, rabiob.nbarlist, p0=[1, 20], sigma=rabiob.nbarerrs, absolute_sigma=True)
+    perr = np.sqrt(np.diag(pcov))
+    perr = perr[0]
+    rate = popt[0]
+    er1 = plt.errorbar(rabiob.rabi_flop_dict.keys(),rabiob.nbarlist,rabiob.nbarerrs,color = colors[j],marker='^',linestyle = "none",label = "thermal fit,\u03B1="
+                                            + str(displacements[j])+": $d\overline{n}$/dt =" + str(round(rate,2))+"+-"+str(round(perr,2)))
+    # er1[-1][0].set_linestyle(style[j])
+
     rabiob.rabi_fit = False
     # rabiob.save_files("/Users/Ben/Desktop","test")
     nblist = []
     for rho in rabiob.rhoTE.states:
         expt = expect(rabiob.H,rho)
         nblist.append(expt)
-    plt.plot(rabiob.tlist,nblist)
+
+    popt, pcov = op.curve_fit(f, tlist, np.real(nblist), p0=[1, 20], absolute_sigma=True)
+    perr = np.sqrt(np.diag(pcov))
+    perr = perr[0]
+    rate = popt[0]
+    pt1 = plt.plot(rabiob.tlist,nblist,color=colors[j], linestyle = style[j],label='$Actual Value$, \u03B1=' + str(displacements[j])+
+                                                       ": $\overline{n}$/dt =" + str(round(rate,2))+"+-"+str(round(perr,2)))
     # sample_waits(medata.states,pts,tlist_rabi,N,color = colors[j])
+
 plt.ylim([0, 80])
-plt.xlabel('Time', fontsize=14)
-plt.ylabel('Number of excitations', fontsize=14)
+plt.xlabel('Time (\u03BCs)', fontsize=14)
+plt.ylabel('$\overline{n}$', fontsize=14)
+
 plt.legend()
-plt.title(
-r'Decay of Fock state $\left|10\rangle\right.$'
-r' in a thermal environment with $\langle n\rangle=10^7$'
-)
+plt.title("Change in $\overline{n}$ as a function of time")
 plt.show()
